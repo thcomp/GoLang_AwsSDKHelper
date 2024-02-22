@@ -85,7 +85,7 @@ func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}
 				err = exchangeErr
 			}
 		} else if info.userApiGwProxyHandler2 != nil {
-			out, err = info.userApiGwProxyHandler2(context, awsEvent)
+			out, err = info.userApiGwProxyHandler2(awsEvent.RequestContext, awsEvent)
 		} else {
 			err = fmt.Errorf("not set userApiGwProxyHandler")
 		}
@@ -99,7 +99,7 @@ func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}
 				err = exchangeErr
 			}
 		} else if info.userApiGwV2HttpHandler2 != nil {
-			out, err = info.userApiGwV2HttpHandler2(context, awsEvent)
+			out, err = info.userApiGwV2HttpHandler2(&awsEvent.RequestContext, awsEvent)
 		} else {
 			err = fmt.Errorf("not set userApiGwV2HttpHandler")
 		}
@@ -107,13 +107,13 @@ func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}
 		if info.userHttpRequestHandler != nil {
 			if httpReq, exchangeErr := FromLambdaFunctionURLRequest2HttpRequest(awsEvent); exchangeErr == nil {
 				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userLambdaFunctionURLHandler2(httpReq, httpRes)
+				info.userHttpRequestHandler(httpReq, httpRes)
 				out, err = FromHttpResponse2LambdaFunctionURLResponse(httpRes.ExportHttpResponse())
 			} else {
 				err = exchangeErr
 			}
 		} else if info.userLambdaFunctionURLHandler2 != nil {
-			out, err = info.userLambdaFunctionURLHandler2(context, awsEvent)
+			out, err = info.userLambdaFunctionURLHandler2(&awsEvent.RequestContext, awsEvent)
 		}
 	} else {
 		err = fmt.Errorf("unknown format event")
@@ -228,7 +228,7 @@ func FromHttpResponse2APIGatewayProxyResponse(res *http.Response) (to *events.AP
 
 func FromAPIGatewayV2HTTPRequest2HttpRequest(from *events.APIGatewayV2HTTPRequest) (req *http.Request, err error) {
 	req = &http.Request{
-		Method: from.HTTPMethod,
+		Method: from.RequestContext.HTTP.Method,
 	}
 
 	if from.IsBase64Encoded {
@@ -251,28 +251,19 @@ func FromAPIGatewayV2HTTPRequest2HttpRequest(from *events.APIGatewayV2HTTPReques
 		for key, value := range from.Headers {
 			req.Header.Add(key, value)
 		}
-		for key, values := range from.MultiValueHeaders {
-			for _, value := range values {
-				req.Header.Add(key, value)
-			}
-		}
 
 		baseURLbuilder := ThcompUtility.StringBuilder{}
 		baseURLbuilder.Append("http://localhost/")
-		if len(from.Path) > 0 {
-			from.Path = strings.TrimPrefix(from.Path, "/")
-			baseURLbuilder.Append(from.Path)
+		if len(from.RequestContext.HTTP.Path) > 0 {
+			tempPath := from.RequestContext.HTTP.Path
+			tempPath = strings.TrimPrefix(tempPath, "/")
+			baseURLbuilder.Append(tempPath)
 		}
 
-		if len(from.QueryStringParameters) > 0 || len(from.MultiValueQueryStringParameters) > 0 {
+		if len(from.QueryStringParameters) > 0 {
 			queries := []string{}
 			for key, value := range from.QueryStringParameters {
 				queries = append(queries, key+"="+value)
-			}
-			for key, values := range from.MultiValueQueryStringParameters {
-				for _, value := range values {
-					queries = append(queries, key+"="+value)
-				}
 			}
 
 			queriesText := strings.Join(queries, "&")
@@ -290,7 +281,7 @@ func FromAPIGatewayV2HTTPRequest2HttpRequest(from *events.APIGatewayV2HTTPReques
 }
 
 func FromHttpResponse2APIGatewayV2HTTPResponse(res *http.Response) (to *events.APIGatewayV2HTTPResponse, err error) {
-	to = &events.APIGatewayProxyResponse{
+	to = &events.APIGatewayV2HTTPResponse{
 		StatusCode: res.StatusCode,
 	}
 
@@ -332,7 +323,7 @@ func FromHttpResponse2APIGatewayV2HTTPResponse(res *http.Response) (to *events.A
 
 func FromLambdaFunctionURLRequest2HttpRequest(from *events.LambdaFunctionURLRequest) (req *http.Request, err error) {
 	req = &http.Request{
-		Method: from.HTTPMethod,
+		Method: from.RequestContext.HTTP.Method,
 	}
 
 	if from.IsBase64Encoded {
@@ -355,28 +346,19 @@ func FromLambdaFunctionURLRequest2HttpRequest(from *events.LambdaFunctionURLRequ
 		for key, value := range from.Headers {
 			req.Header.Add(key, value)
 		}
-		for key, values := range from.MultiValueHeaders {
-			for _, value := range values {
-				req.Header.Add(key, value)
-			}
-		}
 
 		baseURLbuilder := ThcompUtility.StringBuilder{}
 		baseURLbuilder.Append("http://localhost/")
-		if len(from.Path) > 0 {
-			from.Path = strings.TrimPrefix(from.Path, "/")
-			baseURLbuilder.Append(from.Path)
+		if len(from.RequestContext.HTTP.Path) > 0 {
+			tempPath := from.RequestContext.HTTP.Path
+			tempPath = strings.TrimPrefix(tempPath, "/")
+			baseURLbuilder.Append(tempPath)
 		}
 
-		if len(from.QueryStringParameters) > 0 || len(from.MultiValueQueryStringParameters) > 0 {
+		if len(from.QueryStringParameters) > 0 {
 			queries := []string{}
 			for key, value := range from.QueryStringParameters {
 				queries = append(queries, key+"="+value)
-			}
-			for key, values := range from.MultiValueQueryStringParameters {
-				for _, value := range values {
-					queries = append(queries, key+"="+value)
-				}
 			}
 
 			queriesText := strings.Join(queries, "&")
@@ -394,26 +376,19 @@ func FromLambdaFunctionURLRequest2HttpRequest(from *events.LambdaFunctionURLRequ
 }
 
 func FromHttpResponse2LambdaFunctionURLResponse(res *http.Response) (to *events.LambdaFunctionURLResponse, err error) {
-	to = &events.APIGatewayProxyResponse{
+	to = &events.LambdaFunctionURLResponse{
 		StatusCode: res.StatusCode,
 	}
 
 	mimeType := ``
 	for key, values := range res.Header {
-		if len(values) > 1 {
-			if to.MultiValueHeaders == nil {
-				to.MultiValueHeaders = map[string][]string{}
-			}
-			to.MultiValueHeaders[key] = values
-		} else if len(values) == 1 {
-			if to.Headers == nil {
-				to.Headers = map[string]string{}
-			}
-			to.Headers[key] = values[0]
+		if to.Headers == nil {
+			to.Headers = map[string]string{}
+		}
+		to.Headers[key] = values[0]
 
-			if strings.ToLower(key) == "content-type" {
-				mimeType = values[0]
-			}
+		if strings.ToLower(key) == "content-type" {
+			mimeType = values[0]
 		}
 	}
 
