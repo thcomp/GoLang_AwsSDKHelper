@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -488,4 +489,18 @@ func StartLambdaForSES(handler SimpleEmailEventHandler) {
 		userSimpleEmailEventHandler: handler,
 	}
 	lambda.Start(info.Handler1)
+}
+
+func IsRunOnLambda() (ret bool) {
+	serverlessPlatform := os.Getenv("serverless_platform")
+	serverlessPlatform = strings.ToLower(serverlessPlatform)
+
+	switch serverlessPlatform {
+	case "lambda":
+		ret = true
+	case "aws_lambda", "aws lambda", "aws-lambda":
+		ret = true
+	}
+
+	return
 }
