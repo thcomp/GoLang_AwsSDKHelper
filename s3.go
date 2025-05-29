@@ -24,7 +24,7 @@ type S3Helper struct {
 	createdByFunc bool
 }
 
-func CreateS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) *S3Helper {
+func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) *S3Helper {
 	ret := &S3Helper{
 		config: &aws.Config{
 			Region: region,
