@@ -94,6 +94,25 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 	return
 }
 
+func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
+	ctx := context.Background()
+	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: &item.helper.bucket,
+		Key:    aws.String(s3Filepath),
+	}); err == nil {
+		item = &S3Item{
+			IsDir:        false,
+			lastModified: output.LastModified,
+			size:         output.ContentLength,
+			helper:       s3Helper,
+		}
+	} else {
+		retErr = err
+	}
+
+	return
+}
+
 func (s3Helper *S3Helper) PutItem(item *S3Item) (err error) {
 	ctx := context.Background()
 
