@@ -86,7 +86,7 @@ func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}
 				err = exchangeErr
 			}
 		} else if info.userApiGwProxyHandler2 != nil {
-			out, err = info.userApiGwProxyHandler2(awsEvent.RequestContext, awsEvent)
+			out, err = info.userApiGwProxyHandler2(&awsEvent.RequestContext, awsEvent)
 		} else {
 			err = fmt.Errorf("not set userApiGwProxyHandler")
 		}
