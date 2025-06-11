@@ -19,7 +19,7 @@ import (
 
 type HttpRequestHandler func(r *http.Request, w http.ResponseWriter)
 type ApiGwProxyHandler1 func(event *events.APIGatewayProxyRequest) error
-type ApiGwProxyHandler2 func(context events.APIGatewayProxyRequestContext, event *events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error)
+type ApiGwProxyHandler2 func(context *events.APIGatewayProxyRequestContext, event *events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error)
 type ApiGwV2HttpHandler1 func(event *events.APIGatewayV2HTTPRequest) error
 type ApiGwV2HttpHandler2 func(context *events.APIGatewayV2HTTPRequestContext, event *events.APIGatewayV2HTTPRequest) (*events.APIGatewayV2HTTPResponse, error)
 type ApiGwWebsocketHandler func(context *events.APIGatewayWebsocketProxyRequestContext, event *events.APIGatewayWebsocketProxyRequest) error
