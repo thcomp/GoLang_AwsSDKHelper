@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -62,14 +63,48 @@ func (info *httpHandlerInfo) Handler1(context context.Context, event interface{}
 		} else {
 			err = fmt.Errorf("not set userSimpleQueueServiceHandler")
 		}
-	} else {
-		if info.userApiGwProxyHandler1 != nil {
-
-		} else if info.userApiGwV2HttpHandler1 != nil {
-
-		} else if info.userLambdaFunctionURLHandler1 != nil {
-
+	} else if awsEvent, assertionOK := event.(*events.APIGatewayProxyRequest); assertionOK {
+		if info.userHttpRequestHandler != nil {
+			if httpReq, exchangeErr := FromAPIGatewayProxyRequest2HttpRequest(awsEvent); exchangeErr == nil {
+				httpRes := ThcompUtility.NewHttpResponseHelper()
+				info.userHttpRequestHandler(httpReq, httpRes)
+				_, err = FromHttpResponse2APIGatewayProxyResponse(httpRes.ExportHttpResponse())
+			} else {
+				err = exchangeErr
+			}
+		} else if info.userApiGwProxyHandler2 != nil {
+			_, err = info.userApiGwProxyHandler2(&awsEvent.RequestContext, awsEvent)
+		} else {
+			err = fmt.Errorf("not set userApiGwProxyHandler")
 		}
+	} else if awsEvent, assertionOK := event.(*events.APIGatewayV2HTTPRequest); assertionOK {
+		if info.userHttpRequestHandler != nil {
+			if httpReq, exchangeErr := FromAPIGatewayV2HTTPRequest2HttpRequest(awsEvent); exchangeErr == nil {
+				httpRes := ThcompUtility.NewHttpResponseHelper()
+				info.userHttpRequestHandler(httpReq, httpRes)
+				_, err = FromHttpResponse2APIGatewayV2HTTPResponse(httpRes.ExportHttpResponse())
+			} else {
+				err = exchangeErr
+			}
+		} else if info.userApiGwV2HttpHandler2 != nil {
+			_, err = info.userApiGwV2HttpHandler2(&awsEvent.RequestContext, awsEvent)
+		} else {
+			err = fmt.Errorf("not set userApiGwV2HttpHandler")
+		}
+	} else if awsEvent, assertionOK := event.(*events.LambdaFunctionURLRequest); assertionOK {
+		if info.userHttpRequestHandler != nil {
+			if httpReq, exchangeErr := FromLambdaFunctionURLRequest2HttpRequest(awsEvent); exchangeErr == nil {
+				httpRes := ThcompUtility.NewHttpResponseHelper()
+				info.userHttpRequestHandler(httpReq, httpRes)
+				_, err = FromHttpResponse2LambdaFunctionURLResponse(httpRes.ExportHttpResponse())
+			} else {
+				err = exchangeErr
+			}
+		} else if info.userLambdaFunctionURLHandler2 != nil {
+			_, err = info.userLambdaFunctionURLHandler2(&awsEvent.RequestContext, awsEvent)
+		}
+	} else {
+		err = fmt.Errorf("unknown format event: %v: %s", event, reflect.TypeOf(event).String())
 	}
 
 	return err
@@ -117,7 +152,7 @@ func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}
 			out, err = info.userLambdaFunctionURLHandler2(&awsEvent.RequestContext, awsEvent)
 		}
 	} else {
-		err = fmt.Errorf("unknown format event")
+		err = fmt.Errorf("unknown format event: %v: %s", event, reflect.TypeOf(event).String())
 	}
 
 	return
