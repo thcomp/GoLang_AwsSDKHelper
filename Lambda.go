@@ -111,6 +111,7 @@ func (info *httpHandlerInfo) Handler1(context context.Context, event interface{}
 }
 
 func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}) (out interface{}, err error) {
+	fmt.Printf("context: %v: %s", context, reflect.TypeOf(context).String())
 	if awsEvent, assertionOK := event.(*events.APIGatewayProxyRequest); assertionOK {
 		if info.userHttpRequestHandler != nil {
 			if httpReq, exchangeErr := FromAPIGatewayProxyRequest2HttpRequest(awsEvent); exchangeErr == nil {
