@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -462,6 +463,158 @@ func (helper *LambdaEventHelper) URL() (u *url.URL, err error) {
 
 	u, err = url.Parse(urlStr)
 	return
+}
+
+func (helper *LambdaEventHelper) MapOfAPIGatewayProxyResponse(response *http.Response) (ret map[string]interface{}, retErr error) {
+	headers := make(map[string]string)
+	multiValueHeaders := make(map[string][]string)
+
+	for k, v := range response.Header {
+		headers[k] = v[0]        // Take the first value for single-value headers
+		multiValueHeaders[k] = v // Keep all values for multi-value headers
+	}
+
+	bodyBytes, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	isBase64Encoded := false
+	contentType := response.Header.Get("Content-Type")
+	// Content-TypeからMIMEタイプをパース
+	if mimeType, _, err := mime.ParseMediaType(contentType); err == nil {
+		if !strings.HasPrefix(mimeType, "text/") && !strings.Contains(mimeType, "json") && !strings.Contains(mimeType, "xml") {
+			// "text/"で始まらない、かつ "json" も "xml" も含まれない場合はバイナリとみなす
+			// JSONやXMLは通常テキストなので、明示的に除外
+			isBase64Encoded = true
+		}
+	} else {
+		isBase64Encoded = true
+	}
+
+	var bodyString string
+	if isBase64Encoded {
+		bodyString = base64.StdEncoding.EncodeToString(bodyBytes)
+	} else {
+		bodyString = string(bodyBytes)
+	}
+
+	responseMap := map[string]interface{}{
+		"statusCode":        response.StatusCode,
+		"headers":           headers,
+		"multiValueHeaders": multiValueHeaders, // Optionnal: Use if you need multi-value headers
+		"body":              bodyString,
+		"isBase64Encoded":   isBase64Encoded,
+	}
+
+	return responseMap, nil
+}
+
+func (helper *LambdaEventHelper) MapOfAPIGatewayV2HTTPResponse(response *http.Response) (ret map[string]interface{}, retErr error) {
+	headers := make(map[string]string)
+	multiValueHeaders := make(map[string][]string)
+	var cookies []string
+
+	for k, v := range response.Header {
+		lowerKey := strings.ToLower(k)
+		if lowerKey == "set-cookie" {
+			cookies = append(cookies, v...) // Set-Cookie は複数ある可能性があるので全て追加
+		} else {
+			headers[k] = v[0]        // カンマ区切りで結合
+			multiValueHeaders[k] = v // Keep all values for multi-value headers
+		}
+	}
+
+	bodyBytes, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close() // Bodyを読み終わったらクローズする
+
+	isBase64Encoded := false
+	contentType := response.Header.Get("Content-Type")
+	// Content-TypeからMIMEタイプをパース
+	if mimeType, _, err := mime.ParseMediaType(contentType); err == nil {
+		if !strings.HasPrefix(mimeType, "text/") && !strings.Contains(mimeType, "json") && !strings.Contains(mimeType, "xml") {
+			// "text/"で始まらない、かつ "json" も "xml" も含まれない場合はバイナリとみなす
+			// JSONやXMLは通常テキストなので、明示的に除外
+			isBase64Encoded = true
+		}
+	} else {
+		isBase64Encoded = true
+	}
+
+	var bodyString string
+	if isBase64Encoded {
+		bodyString = base64.StdEncoding.EncodeToString(bodyBytes)
+	} else {
+		bodyString = string(bodyBytes)
+	}
+
+	responseMap := map[string]interface{}{
+		"statusCode":        response.StatusCode,
+		"headers":           headers,
+		"multiValueHeaders": multiValueHeaders,
+		"body":              bodyString,
+		"isBase64Encoded":   isBase64Encoded,
+		"cookies":           cookies, // APIGatewayV2HTTPResponse の Cookies フィールド
+	}
+
+	return responseMap, nil
+}
+
+func (helper *LambdaEventHelper) MapOfLambdaFunctionURLResponse(response *http.Response) (ret map[string]interface{}, retErr error) {
+	headers := make(map[string]string)
+
+	for k, v := range response.Header {
+		// Lambda Function URL Response の Headers は map[string]string なので、
+		// 複数値のヘッダーはカンマ区切りで結合します。
+		// 例えば、Set-Cookie は複数の値を持つことがありますが、Lambda Function URL では
+		// これらを単一の "Set-Cookie" ヘッダーとしてカンマ区切りで結合するのが一般的です。
+		// ただし、RFC 6265 に基づくと Set-Cookie は個別のヘッダーとして送るべきですが、
+		// Lambda Function URL の制限によりこのように処理します。
+		headers[k] = strings.Join(v, ", ")
+	}
+
+	bodyBytes, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close() // Bodyを読み終わったらクローズする
+
+	contentType := response.Header.Get("Content-Type")
+	mimeType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		// パースエラーが発生した場合は、元のContent-TypeをそのままMIMEタイプとして使う
+		mimeType = contentType
+	}
+
+	isBase64Encoded := false
+	// text/で始まる、またはapplication/json, application/xml, application/javascript, text/css
+	// の場合はテキストとみなす。
+	if !strings.HasPrefix(mimeType, "text/") &&
+		!strings.Contains(mimeType, "json") &&
+		!strings.Contains(mimeType, "xml") &&
+		!strings.Contains(mimeType, "javascript") &&
+		!strings.Contains(mimeType, "css") {
+		isBase64Encoded = true
+	}
+
+	var bodyString string
+	if isBase64Encoded {
+		bodyString = base64.StdEncoding.EncodeToString(bodyBytes)
+	} else {
+		bodyString = string(bodyBytes)
+	}
+
+	responseMap := map[string]interface{}{
+		"statusCode":      response.StatusCode,
+		"headers":         headers,
+		"body":            bodyString,
+		"isBase64Encoded": isBase64Encoded,
+	}
+
+	return responseMap, nil
 }
 
 func FromAPIGatewayProxyRequest2HttpRequest(from *events.APIGatewayProxyRequest) (req *http.Request, err error) {
