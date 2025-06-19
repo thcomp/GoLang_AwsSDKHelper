@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -30,132 +30,437 @@ type SimpleNotificationServiceHandler func(event *events.SNSEvent) error
 type SimpleQueueServiceHandler func(event *events.SQSEvent) error
 type SimpleEmailEventHandler func(event *events.SimpleEmailEvent) error
 
-type httpHandlerInfo struct {
-	userHttpRequestHandler               HttpRequestHandler
-	userApiGwProxyHandler1               ApiGwProxyHandler1
-	userApiGwProxyHandler2               ApiGwProxyHandler2
-	userApiGwV2HttpHandler1              ApiGwV2HttpHandler1
-	userApiGwV2HttpHandler2              ApiGwV2HttpHandler2
-	userApiGwWebsocketHandler            ApiGwWebsocketHandler
-	userLambdaFunctionURLHandler1        LambdaFunctionURLHandler1
-	userLambdaFunctionURLHandler2        LambdaFunctionURLHandler2
-	userSimpleNotificationServiceHandler SimpleNotificationServiceHandler
-	userSimpleQueueServiceHandler        SimpleQueueServiceHandler
-	userSimpleEmailEventHandler          SimpleEmailEventHandler
+type LambdaEventType int
+
+const (
+	Unknown LambdaEventType = iota
+	LambdaFunctionURL
+	APIGateway
+	APIGatewayV2
+	APIGatewayWebsocket
+	SNSEvent
+	SQSEvent
+	SimpleEmailEvent
+)
+
+type LambdaEventHelper struct {
+	eventMap  map[string]interface{}
+	eventType LambdaEventType
 }
 
-func (info *httpHandlerInfo) Handler1(context context.Context, event interface{}) (err error) {
-	if awsEvent, assertionOK := event.(*events.SimpleEmailEvent); assertionOK {
-		if info.userSimpleEmailEventHandler != nil {
-			err = info.userSimpleEmailEventHandler(awsEvent)
-		} else {
-			err = fmt.Errorf("not set userSimpleEmailEventHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.SNSEvent); assertionOK {
-		if info.userSimpleNotificationServiceHandler != nil {
-			err = info.userSimpleNotificationServiceHandler(awsEvent)
-		} else {
-			err = fmt.Errorf("not set userSimpleNotificationServiceHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.SQSEvent); assertionOK {
-		if info.userSimpleQueueServiceHandler != nil {
-			err = info.userSimpleQueueServiceHandler(awsEvent)
-		} else {
-			err = fmt.Errorf("not set userSimpleQueueServiceHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.APIGatewayProxyRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromAPIGatewayProxyRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				_, err = FromHttpResponse2APIGatewayProxyResponse(httpRes.ExportHttpResponse())
-			} else {
-				err = exchangeErr
+func NewLambdaEventHelper(event interface{}) (helper *LambdaEventHelper, err error) {
+	if eventMap, assertionOK := event.(map[string]interface{}); assertionOK {
+		if eventType, tempErr := wahtIsLambdaEvent(eventMap); eventType != Unknown && tempErr == nil {
+			helper = &LambdaEventHelper{
+				eventMap:  eventMap,
+				eventType: eventType,
 			}
-		} else if info.userApiGwProxyHandler2 != nil {
-			_, err = info.userApiGwProxyHandler2(&awsEvent.RequestContext, awsEvent)
+		} else if tempErr != nil {
+			err = tempErr
 		} else {
-			err = fmt.Errorf("not set userApiGwProxyHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.APIGatewayV2HTTPRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromAPIGatewayV2HTTPRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				_, err = FromHttpResponse2APIGatewayV2HTTPResponse(httpRes.ExportHttpResponse())
-			} else {
-				err = exchangeErr
-			}
-		} else if info.userApiGwV2HttpHandler2 != nil {
-			_, err = info.userApiGwV2HttpHandler2(&awsEvent.RequestContext, awsEvent)
-		} else {
-			err = fmt.Errorf("not set userApiGwV2HttpHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.LambdaFunctionURLRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromLambdaFunctionURLRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				_, err = FromHttpResponse2LambdaFunctionURLResponse(httpRes.ExportHttpResponse())
-			} else {
-				err = exchangeErr
-			}
-		} else if info.userLambdaFunctionURLHandler2 != nil {
-			_, err = info.userLambdaFunctionURLHandler2(&awsEvent.RequestContext, awsEvent)
+			err = fmt.Errorf("unknown event type: %v", eventMap)
 		}
 	} else {
-		err = fmt.Errorf("unknown format event: %v: %s", event, reflect.TypeOf(event).String())
+		err = fmt.Errorf("event is not a map[string]interface{}: %v: %s", event, reflect.TypeOf(event).String())
+		return
 	}
 
-	return err
+	return
 }
 
-func (info *httpHandlerInfo) Handler2(context context.Context, event interface{}) (out interface{}, err error) {
-	fmt.Printf("context: %v: %s", context, reflect.TypeOf(context).String())
-	if awsEvent, assertionOK := event.(*events.APIGatewayProxyRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromAPIGatewayProxyRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				out, err = FromHttpResponse2APIGatewayProxyResponse(httpRes.ExportHttpResponse())
+func wahtIsLambdaEvent(event map[string]interface{}) (eventType LambdaEventType, err error) {
+	eventType = Unknown
+
+	if records, exist := event["Records"]; exist {
+		if recordsArray, assertionOK := records.([]interface{}); assertionOK && len(recordsArray) > 0 {
+			if recordMap, assertionOK := recordsArray[0].(map[string]interface{}); assertionOK {
+				if _, exist := recordMap["Sns"]; exist {
+					// SNSEvent
+					eventType = SNSEvent
+				} else if _, exist := recordMap["messageId"]; exist {
+					// SQSEvent
+					eventType = SQSEvent
+				} else if _, exist := recordMap["ses"]; exist {
+					// SimpleEmailEvent
+					eventType = SimpleEmailEvent
+				} else {
+					err = fmt.Errorf("unknown record format: %v", recordMap)
+				}
 			} else {
-				err = exchangeErr
+				err = fmt.Errorf("records is not a map[string]interface{}: %v", recordsArray[0])
 			}
-		} else if info.userApiGwProxyHandler2 != nil {
-			out, err = info.userApiGwProxyHandler2(&awsEvent.RequestContext, awsEvent)
 		} else {
-			err = fmt.Errorf("not set userApiGwProxyHandler")
+			err = fmt.Errorf("records is not an array of map[string]interface{}: %v", records)
 		}
-	} else if awsEvent, assertionOK := event.(*events.APIGatewayV2HTTPRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromAPIGatewayV2HTTPRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				out, err = FromHttpResponse2APIGatewayV2HTTPResponse(httpRes.ExportHttpResponse())
+	} else if requestContext, exist := event["requestContext"]; exist {
+		// APIGatewayProxyRequest, APIGatewayV2HTTPRequest, APIGatewayV2HTTPRequest or LambdaFunctionURLRequest
+		if requestContextMap, assertionOK := requestContext.(map[string]interface{}); assertionOK {
+			if _, exist := requestContextMap["status"]; exist {
+				eventType = APIGatewayWebsocket
+			} else if _, exist := requestContextMap["routeKey"]; exist {
+				eventType = APIGatewayV2
+			} else if _, exist := requestContextMap["httpMethod"]; exist {
+				eventType = APIGateway
+			} else if _, exist := requestContextMap["http"]; exist {
+				eventType = LambdaFunctionURL
 			} else {
-				err = exchangeErr
+				err = fmt.Errorf("unknown requestContext format: %v", requestContext)
 			}
-		} else if info.userApiGwV2HttpHandler2 != nil {
-			out, err = info.userApiGwV2HttpHandler2(&awsEvent.RequestContext, awsEvent)
-		} else {
-			err = fmt.Errorf("not set userApiGwV2HttpHandler")
-		}
-	} else if awsEvent, assertionOK := event.(*events.LambdaFunctionURLRequest); assertionOK {
-		if info.userHttpRequestHandler != nil {
-			if httpReq, exchangeErr := FromLambdaFunctionURLRequest2HttpRequest(awsEvent); exchangeErr == nil {
-				httpRes := ThcompUtility.NewHttpResponseHelper()
-				info.userHttpRequestHandler(httpReq, httpRes)
-				out, err = FromHttpResponse2LambdaFunctionURLResponse(httpRes.ExportHttpResponse())
-			} else {
-				err = exchangeErr
-			}
-		} else if info.userLambdaFunctionURLHandler2 != nil {
-			out, err = info.userLambdaFunctionURLHandler2(&awsEvent.RequestContext, awsEvent)
 		}
 	} else {
-		err = fmt.Errorf("unknown format event: %v: %s", event, reflect.TypeOf(event).String())
+		err = fmt.Errorf("unknown event format: %v", event)
 	}
 
+	return
+}
+
+func (helper *LambdaEventHelper) HttpRequest() (req *http.Request, err error) {
+	req = &http.Request{}
+
+	// method
+	if requestContext, exist := helper.eventMap["requestContext"]; exist {
+		if requestContextMap, ok := requestContext.(map[string]interface{}); ok {
+			var path, rawQuery string
+
+			// Build URL
+			urlStr := "http://localhost"
+			if domainName, ok := requestContextMap["domainName"].(string); ok && domainName != "" {
+				urlStr = "http://" + domainName
+			}
+
+			// LambdaFunctionURL, APIGatewayV2, APIGateway, Websocket
+			if httpCtx, ok := requestContextMap["http"].(map[string]interface{}); ok {
+				// LambdaFunctionURL or APIGatewayV2
+				if m, ok := httpCtx["method"].(string); ok {
+					req.Method = m
+				}
+				if p, ok := httpCtx["path"].(string); ok {
+					path = p
+				}
+			} else {
+				// APIGateway or Websocket
+				if m, ok := helper.eventMap["httpMethod"].(string); ok {
+					req.Method = m
+				}
+				if p, ok := helper.eventMap["path"].(string); ok {
+					path = p
+				}
+			}
+
+			if path != "" {
+				if !strings.HasPrefix(path, "/") {
+					urlStr += "/"
+				}
+				urlStr += path
+			}
+
+			// Try to get rawQueryString for v2/lambda-url
+			if v, ok := helper.eventMap["rawQueryString"].(string); ok {
+				rawQuery = v
+			}
+
+			// fallback: build query string from QueryStringParameters
+			if rawQuery == "" {
+				if qsp, ok := helper.eventMap["queryStringParameters"].(map[string]interface{}); ok && len(qsp) > 0 {
+					queries := url.Values{}
+					for k, v := range qsp {
+						if s, ok := v.(string); ok {
+							queries.Add(k, s)
+						}
+					}
+					rawQuery = queries.Encode()
+				}
+			}
+
+			// fallback: build query string from MultiValueQueryStringParameters
+			if rawQuery == "" {
+				if mvqsp, ok := helper.eventMap["multiValueQueryStringParameters"].(map[string]interface{}); ok && len(mvqsp) > 0 {
+					queries := url.Values{}
+					for k, v := range mvqsp {
+						if arr, ok := v.([]interface{}); ok {
+							for _, item := range arr {
+								if s, ok := item.(string); ok {
+									queries.Add(k, s)
+								}
+							}
+						}
+					}
+					rawQuery = queries.Encode()
+				}
+			}
+
+			if rawQuery != "" {
+				urlStr += "?" + rawQuery
+			}
+			if u, err2 := url.Parse(urlStr); err2 == nil {
+				req.URL = u
+			} else {
+				err = err2
+			}
+		}
+	}
+
+	if err == nil {
+		// entity
+		if body, exist := helper.eventMap["body"]; exist {
+			isBase64Encoded := false
+			if v, ok := helper.eventMap["isBase64Encoded"]; ok {
+				if b, ok := v.(bool); ok {
+					isBase64Encoded = b
+				}
+			}
+
+			bodyBytes := []byte(nil)
+			if strBody, ok := body.(string); ok {
+				if isBase64Encoded {
+					bodyBytes, err = base64.StdEncoding.DecodeString(strBody)
+				} else {
+					bodyBytes = []byte(strBody)
+				}
+
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				req.ContentLength = int64(len(bodyBytes))
+			}
+		}
+	}
+
+	if err == nil {
+		// header
+		if headers, exist := helper.eventMap["headers"]; exist {
+			if req.Header == nil {
+				req.Header = http.Header{}
+			}
+
+			if headersMap, assertionOK := headers.(map[string]interface{}); assertionOK {
+				for key, value := range headersMap {
+					if strVal, ok := value.(string); ok {
+						req.Header.Add(key, strVal)
+					} else if arrVal, ok := value.([]interface{}); ok {
+						for _, v := range arrVal {
+							if str, ok := v.(string); ok {
+								req.Header.Add(key, str)
+							}
+						}
+					}
+				}
+			} else if headersMap, assertionOK := headers.(map[string]string); assertionOK {
+				for key, value := range headersMap {
+					req.Header.Add(key, value)
+				}
+			} else if headersMap, assertionOK := headers.(map[string]([]string)); assertionOK {
+				for key, values := range headersMap {
+					for _, value := range values {
+						req.Header.Add(key, value)
+					}
+				}
+			}
+		}
+
+		// multiValueHeaders
+		if multiValueHeaders, exist := helper.eventMap["multiValueHeaders"]; exist {
+			if req.Header == nil {
+				req.Header = http.Header{}
+			}
+
+			if mvhMap, ok := multiValueHeaders.(map[string]interface{}); ok {
+				for key, value := range mvhMap {
+					if arrVal, ok := value.([]interface{}); ok {
+						for _, v := range arrVal {
+							if str, ok := v.(string); ok {
+								req.Header.Add(key, str)
+							}
+						}
+					}
+				}
+			} else if mvhMap, ok := multiValueHeaders.(map[string][]string); ok {
+				for key, values := range mvhMap {
+					for _, value := range values {
+						req.Header.Add(key, value)
+					}
+				}
+			}
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) Method() (method string, err error) {
+	if requestContext, exist := helper.eventMap["requestContext"]; exist {
+		if requestContextMap, ok := requestContext.(map[string]interface{}); ok {
+			// LambdaFunctionURL or APIGatewayV2
+			if httpCtx, ok := requestContextMap["http"].(map[string]interface{}); ok {
+				if m, ok := httpCtx["method"].(string); ok {
+					method = m
+				}
+			}
+			// APIGateway or Websocket
+			if m, ok := helper.eventMap["httpMethod"].(string); ok {
+				method = m
+			}
+		}
+	} else {
+		err = fmt.Errorf("method not found in eventMap")
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) Headers() (headers http.Header, err error) {
+	headers = http.Header{}
+
+	// headers
+	if h, exist := helper.eventMap["headers"]; exist {
+		switch v := h.(type) {
+		case map[string]interface{}:
+			for key, value := range v {
+				if strVal, ok := value.(string); ok {
+					headers.Add(key, strVal)
+				} else if arrVal, ok := value.([]interface{}); ok {
+					for _, item := range arrVal {
+						if str, ok := item.(string); ok {
+							headers.Add(key, str)
+						}
+					}
+				}
+			}
+		case map[string]string:
+			for key, value := range v {
+				headers.Add(key, value)
+			}
+		case map[string][]string:
+			for key, values := range v {
+				for _, value := range values {
+					headers.Add(key, value)
+				}
+			}
+		}
+	}
+
+	// multiValueHeaders
+	if mvh, exist := helper.eventMap["multiValueHeaders"]; exist {
+		switch v := mvh.(type) {
+		case map[string]interface{}:
+			for key, value := range v {
+				if arrVal, ok := value.([]interface{}); ok {
+					for _, item := range arrVal {
+						if str, ok := item.(string); ok {
+							headers.Add(key, str)
+						}
+					}
+				}
+			}
+		case map[string][]string:
+			for key, values := range v {
+				for _, value := range values {
+					headers.Add(key, value)
+				}
+			}
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) Body() (body io.ReadCloser, err error) {
+	if rawBody, exist := helper.eventMap["body"]; exist {
+		isBase64Encoded := false
+		if v, ok := helper.eventMap["isBase64Encoded"]; ok {
+			if b, ok := v.(bool); ok {
+				isBase64Encoded = b
+			}
+		}
+
+		if strBody, ok := rawBody.(string); ok {
+			var bodyBytes []byte
+			if isBase64Encoded {
+				bodyBytes, err = base64.StdEncoding.DecodeString(strBody)
+			} else {
+				bodyBytes = []byte(strBody)
+			}
+			if err == nil {
+				body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+		} else {
+			err = fmt.Errorf("body is not a string: %v", rawBody)
+		}
+	} else {
+		err = fmt.Errorf("body is not in eventMap")
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) URL() (u *url.URL, err error) {
+	var urlStr, path, rawQuery string
+
+	urlStr = "http://localhost"
+
+	if requestContext, exist := helper.eventMap["requestContext"]; exist {
+		if requestContextMap, ok := requestContext.(map[string]interface{}); ok {
+			if domainName, ok := requestContextMap["domainName"].(string); ok && domainName != "" {
+				urlStr = "http://" + domainName
+			}
+			// LambdaFunctionURL, APIGatewayV2, APIGateway, Websocket
+			if httpCtx, ok := requestContextMap["http"].(map[string]interface{}); ok {
+				if p, ok := httpCtx["path"].(string); ok {
+					path = p
+				}
+			} else {
+				if p, ok := helper.eventMap["path"].(string); ok {
+					path = p
+				}
+			}
+		}
+	}
+
+	if path != "" {
+		if !strings.HasPrefix(path, "/") {
+			urlStr += "/"
+		}
+		urlStr += path
+	}
+
+	// Try to get rawQueryString for v2/lambda-url
+	if v, ok := helper.eventMap["rawQueryString"].(string); ok && v != "" {
+		rawQuery = v
+	}
+
+	// fallback: build query string from QueryStringParameters
+	if rawQuery == "" {
+		if qsp, ok := helper.eventMap["queryStringParameters"].(map[string]interface{}); ok && len(qsp) > 0 {
+			queries := url.Values{}
+			for k, v := range qsp {
+				if s, ok := v.(string); ok {
+					queries.Add(k, s)
+				}
+			}
+			rawQuery = queries.Encode()
+		}
+	}
+
+	// fallback: build query string from MultiValueQueryStringParameters
+	if rawQuery == "" {
+		if mvqsp, ok := helper.eventMap["multiValueQueryStringParameters"].(map[string]interface{}); ok && len(mvqsp) > 0 {
+			queries := url.Values{}
+			for k, v := range mvqsp {
+				if arr, ok := v.([]interface{}); ok {
+					for _, item := range arr {
+						if s, ok := item.(string); ok {
+							queries.Add(k, s)
+						}
+					}
+				}
+			}
+			rawQuery = queries.Encode()
+		}
+	}
+
+	if rawQuery != "" {
+		urlStr += "?" + rawQuery
+	}
+
+	u, err = url.Parse(urlStr)
 	return
 }
 
@@ -166,13 +471,13 @@ func FromAPIGatewayProxyRequest2HttpRequest(from *events.APIGatewayProxyRequest)
 
 	if from.IsBase64Encoded {
 		if decodedBody, decodeErr := base64.StdEncoding.DecodeString(from.Body); decodeErr == nil {
-			req.Body = ioutil.NopCloser(bytes.NewReader(decodedBody))
+			req.Body = io.NopCloser(bytes.NewReader(decodedBody))
 			req.ContentLength = int64(len(decodedBody))
 		} else {
 			err = decodeErr
 		}
 	} else {
-		req.Body = ioutil.NopCloser(bytes.NewReader([]byte(from.Body)))
+		req.Body = io.NopCloser(bytes.NewReader([]byte(from.Body)))
 		req.ContentLength = int64(len(from.Body))
 	}
 
@@ -247,7 +552,7 @@ func FromHttpResponse2APIGatewayProxyResponse(res *http.Response) (to *events.AP
 	}
 
 	if res.Body != nil {
-		if responseBody, readErr := ioutil.ReadAll(res.Body); readErr == nil {
+		if responseBody, readErr := io.ReadAll(res.Body); readErr == nil {
 			if strings.HasPrefix(mimeType, "text/") || strings.HasPrefix(mimeType, "application/json") || strings.HasPrefix(mimeType, "image/svg+xml") {
 				to.IsBase64Encoded = false
 				to.Body = string(responseBody)
@@ -270,13 +575,13 @@ func FromAPIGatewayV2HTTPRequest2HttpRequest(from *events.APIGatewayV2HTTPReques
 
 	if from.IsBase64Encoded {
 		if decodedBody, decodeErr := base64.StdEncoding.DecodeString(from.Body); decodeErr == nil {
-			req.Body = ioutil.NopCloser(bytes.NewReader(decodedBody))
+			req.Body = io.NopCloser(bytes.NewReader(decodedBody))
 			req.ContentLength = int64(len(decodedBody))
 		} else {
 			err = decodeErr
 		}
 	} else {
-		req.Body = ioutil.NopCloser(bytes.NewReader([]byte(from.Body)))
+		req.Body = io.NopCloser(bytes.NewReader([]byte(from.Body)))
 		req.ContentLength = int64(len(from.Body))
 	}
 
@@ -342,7 +647,7 @@ func FromHttpResponse2APIGatewayV2HTTPResponse(res *http.Response) (to *events.A
 	}
 
 	if res.Body != nil {
-		if responseBody, readErr := ioutil.ReadAll(res.Body); readErr == nil {
+		if responseBody, readErr := io.ReadAll(res.Body); readErr == nil {
 			if strings.HasPrefix(mimeType, "text/") || strings.HasPrefix(mimeType, "application/json") || strings.HasPrefix(mimeType, "image/svg+xml") {
 				to.IsBase64Encoded = false
 				to.Body = string(responseBody)
@@ -365,13 +670,13 @@ func FromLambdaFunctionURLRequest2HttpRequest(from *events.LambdaFunctionURLRequ
 
 	if from.IsBase64Encoded {
 		if decodedBody, decodeErr := base64.StdEncoding.DecodeString(from.Body); decodeErr == nil {
-			req.Body = ioutil.NopCloser(bytes.NewReader(decodedBody))
+			req.Body = io.NopCloser(bytes.NewReader(decodedBody))
 			req.ContentLength = int64(len(decodedBody))
 		} else {
 			err = decodeErr
 		}
 	} else {
-		req.Body = ioutil.NopCloser(bytes.NewReader([]byte(from.Body)))
+		req.Body = io.NopCloser(bytes.NewReader([]byte(from.Body)))
 		req.ContentLength = int64(len(from.Body))
 	}
 
@@ -430,7 +735,7 @@ func FromHttpResponse2LambdaFunctionURLResponse(res *http.Response) (to *events.
 	}
 
 	if res.Body != nil {
-		if responseBody, readErr := ioutil.ReadAll(res.Body); readErr == nil {
+		if responseBody, readErr := io.ReadAll(res.Body); readErr == nil {
 			if strings.HasPrefix(mimeType, "text/") || strings.HasPrefix(mimeType, "application/json") || strings.HasPrefix(mimeType, "image/svg+xml") {
 				to.IsBase64Encoded = false
 				to.Body = string(responseBody)
@@ -450,81 +755,24 @@ func StartLambda(handler interface{}) {
 	lambda.Start(handler)
 }
 
-func StartLambdaForHTTP(handler HttpRequestHandler) {
-	info := httpHandlerInfo{
-		userHttpRequestHandler: handler,
-	}
-	lambda.Start(info.Handler2)
+func StartLambda1(handler func(context context.Context, event interface{}) (err error)) {
+	lambda.Start(handler)
 }
 
-func StartLambdaForApiGwProxy1(handler ApiGwProxyHandler1) {
-	info := httpHandlerInfo{
-		userApiGwProxyHandler1: handler,
-	}
-	lambda.Start(info.Handler1)
-}
-
-func StartLambdaForApiGwProxy2(handler ApiGwProxyHandler2) {
-	info := httpHandlerInfo{
-		userApiGwProxyHandler2: handler,
-	}
-	lambda.Start(info.Handler2)
-}
-
-func StartLambdaForApiGwV2Http1(handler ApiGwV2HttpHandler1) {
-	info := httpHandlerInfo{
-		userApiGwV2HttpHandler1: handler,
-	}
-	lambda.Start(info.Handler1)
-}
-
-func StartLambdaForApiGwV2Http2(handler ApiGwV2HttpHandler2) {
-	info := httpHandlerInfo{
-		userApiGwV2HttpHandler2: handler,
-	}
-	lambda.Start(info.Handler2)
-}
-
-func StartLambdaForApiGwWebsocket(handler ApiGwWebsocketHandler) {
-	info := httpHandlerInfo{
-		userApiGwWebsocketHandler: handler,
-	}
-	lambda.Start(info.Handler1)
-}
-
-func StartLambdaForLambdaFunctionURL1(handler LambdaFunctionURLHandler1) {
-	info := httpHandlerInfo{
-		userLambdaFunctionURLHandler1: handler,
-	}
-	lambda.Start(info.Handler1)
-}
-
-func StartLambdaForLambdaFunctionURL2(handler LambdaFunctionURLHandler2) {
-	info := httpHandlerInfo{
-		userLambdaFunctionURLHandler2: handler,
-	}
-	lambda.Start(info.Handler2)
+func StartLambda2(handler func(context context.Context, event interface{}) (out interface{}, err error)) {
+	lambda.Start(handler)
 }
 
 func StartLambdaForSNS(handler SimpleNotificationServiceHandler) {
-	info := httpHandlerInfo{
-		userSimpleNotificationServiceHandler: handler,
-	}
-	lambda.Start(info.Handler1)
+	lambda.Start(handler)
 }
 
 func StartLambdaForSQS(handler SimpleQueueServiceHandler) {
-	info := httpHandlerInfo{
-		userSimpleQueueServiceHandler: handler,
-	}
-	lambda.Start(info.Handler1)
+	lambda.Start(handler)
 }
 
 func StartLambdaForSES(handler SimpleEmailEventHandler) {
-	info := httpHandlerInfo{
-		userSimpleEmailEventHandler: handler,
-	}
-	lambda.Start(info.Handler1)
+	lambda.Start(handler)
 }
 
 func IsRunOnLambda() (ret bool) {

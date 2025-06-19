@@ -1,11 +1,12 @@
 module github.com/thcomp/GoLang_AwsSDKHelper
 
-go 1.22.1
+go 1.24.3
 
 require (
 	github.com/aws/aws-lambda-go v1.46.0
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.4
+	github.com/thcomp/GoLang_TestUtility v1.0.0
 	github.com/thcomp/GoLang_Utility v1.29.10
 )
 
