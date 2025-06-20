@@ -127,6 +127,10 @@ func wahtIsLambdaEvent(event map[string]interface{}) (eventType LambdaEventType,
 	return
 }
 
+func (helper *LambdaEventHelper) EventType() LambdaEventType {
+	return helper.eventType
+}
+
 func (helper *LambdaEventHelper) HttpRequest() (req *http.Request, err error) {
 	req = &http.Request{}
 
