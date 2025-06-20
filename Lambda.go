@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -42,6 +43,8 @@ const (
 	SNSEvent
 	SQSEvent
 	SimpleEmailEvent
+	EventBridgeRules
+	EventBridgeScheduler
 )
 
 type LambdaEventHelper struct {
@@ -107,6 +110,15 @@ func wahtIsLambdaEvent(event map[string]interface{}) (eventType LambdaEventType,
 			} else {
 				err = fmt.Errorf("unknown requestContext format: %v", requestContext)
 			}
+		}
+	} else if source, exist := event["source"]; exist {
+		switch source {
+		case "aws.events":
+			eventType = EventBridgeRules
+		case "aws.scheduler":
+			eventType = EventBridgeScheduler
+		default:
+			err = fmt.Errorf("unknown source: %s", source)
 		}
 	} else {
 		err = fmt.Errorf("unknown event format: %v", event)
@@ -280,6 +292,98 @@ func (helper *LambdaEventHelper) HttpRequest() (req *http.Request, err error) {
 					}
 				}
 			}
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) APIGatewayProxyRequest() (ret *events.APIGatewayProxyRequest, retErr error) {
+	if helper.eventType == APIGateway {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.APIGatewayProxyRequest{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) APIGatewayV2HTTPRequest() (ret *events.APIGatewayV2HTTPRequest, retErr error) {
+	if helper.eventType == APIGatewayV2 {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.APIGatewayV2HTTPRequest{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) LambdaFunctionURLRequest() (ret *events.LambdaFunctionURLRequest, retErr error) {
+	if helper.eventType == LambdaFunctionURL {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.LambdaFunctionURLRequest{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) SNSEvent() (ret *events.SNSEvent, retErr error) {
+	if helper.eventType == SNSEvent {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.SNSEvent{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) SQSEvent() (ret *events.SQSEvent, retErr error) {
+	if helper.eventType == SQSEvent {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.SQSEvent{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) SimpleEmailEvent() (ret *events.SimpleEmailEvent, retErr error) {
+	if helper.eventType == SimpleEmailEvent {
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.SimpleEmailEvent{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
+		}
+	}
+
+	return
+}
+
+func (helper *LambdaEventHelper) EventBridgeEvent() (ret *events.EventBridgeEvent, retErr error) {
+	switch helper.eventType {
+	case EventBridgeRules, EventBridgeScheduler:
+		if jsonBytes, marshalErr := json.Marshal(helper.eventMap); marshalErr == nil {
+			ret = &events.EventBridgeEvent{}
+			retErr = json.Unmarshal(jsonBytes, ret)
+		} else {
+			retErr = marshalErr
 		}
 	}
 
