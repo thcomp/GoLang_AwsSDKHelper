@@ -30,10 +30,8 @@ func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *Th
 		config.WithRegion(region),
 		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
-				aws.Credentials{
-					AccessKeyID:     accessKeyId,
-					SecretAccessKey: secretAccessKey,
-				},
+				accessKeyId,
+				secretAccessKey,
 			),
 		),
 	); err == nil {
