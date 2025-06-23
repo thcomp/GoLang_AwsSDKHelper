@@ -32,6 +32,7 @@ func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *Th
 			credentials.NewStaticCredentialsProvider(
 				accessKeyId,
 				secretAccessKey,
+				``,
 			),
 		),
 	); err == nil {
