@@ -1,7 +1,6 @@
 package awssdkhelper
 
 import (
-	"Thcomp/PictManager_ForwardProxy/config"
 	"bytes"
 	"context"
 	"fmt"
@@ -10,9 +9,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/config"
+	"github.com/aws/aws-sdk-go-v2/aws/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/cli/go-gh/v2/pkg/config"
 
 	ThcompUtility "github.com/thcomp/GoLang_Utility"
 )
