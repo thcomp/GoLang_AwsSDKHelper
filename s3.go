@@ -45,7 +45,6 @@ func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *Th
 		ret.client = s3.NewFromConfig(config)
 	}
 
-	logger.LogfV("ret.client: %v", ret.client)
 	return ret
 }
 
@@ -68,7 +67,7 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 					items = append(
 						items,
 						&S3Item{
-							IsDir:        false,
+							IsDir:        content.Size == nil,
 							Path:         (*content.Key),
 							size:         content.Size,
 							lastModified: content.LastModified,
@@ -102,7 +101,6 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 
 func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
 	ctx := context.Background()
-	s3Helper.logger.LogfE("s3Helper.client: %v", s3Helper.client)
 	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s3Helper.bucket,
 		Key:    aws.String(s3Filepath),
