@@ -1,6 +1,7 @@
 package awssdkhelper
 
 import (
+	"Thcomp/PictManager_ForwardProxy/config"
 	"bytes"
 	"context"
 	"fmt"
@@ -10,36 +11,43 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/cli/go-gh/v2/pkg/config"
 
 	ThcompUtility "github.com/thcomp/GoLang_Utility"
 )
 
 type S3Helper struct {
-	config      *aws.Config
-	credentials *aws.Credentials
-	bucket      string
-	client      *s3.Client
-	logger      *ThcompUtility.Logger
+	bucket string
+	client *s3.Client
+	logger *ThcompUtility.Logger
 
 	createdByFunc bool
 }
 
-func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) *S3Helper {
-	ret := &S3Helper{
-		config: &aws.Config{
-			Region: region,
-		},
-		credentials: &aws.Credentials{
-			AccessKeyID:     accessKeyId,
-			SecretAccessKey: secretAccessKey,
-		},
-		bucket:        bucket,
-		logger:        logger,
-		createdByFunc: true,
+func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) (ret *S3Helper) {
+	if config, err := config.LoadDefaultConfig(
+		context.TODO(),
+		config.WithRegion(region),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(
+				aws.Credentials{
+					AccessKeyID:     accessKeyId,
+					SecretAccessKey: secretAccessKey,
+				},
+			),
+		),
+	); err == nil {
+		ret = &S3Helper{
+			bucket:        bucket,
+			logger:        logger,
+			createdByFunc: true,
+		}
+
+		ret.client = s3.NewFromConfig(config)
 	}
 
-	ret.client = s3.NewFromConfig(*ret.config)
-
+	logger.LogfV("ret.client: %v", ret.client)
 	return ret
 }
 
@@ -96,8 +104,9 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 
 func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
 	ctx := context.Background()
+	s3Helper.logger.LogfE("s3Helper.client: %v", s3Helper.client)
 	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: &item.helper.bucket,
+		Bucket: &s3Helper.bucket,
 		Key:    aws.String(s3Filepath),
 	}); err == nil {
 		item = &S3Item{
