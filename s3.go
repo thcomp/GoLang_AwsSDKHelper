@@ -126,7 +126,7 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 }
 
 func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
-	s3Helper.logger.LogfV("key: %s", s3Filepath)
+	s3Helper.logger.LogfV("bucket: %s, key: %s", s3Helper.bucket, s3Filepath)
 	ctx := context.Background()
 	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s3Helper.bucket,
