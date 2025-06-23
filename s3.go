@@ -26,6 +26,7 @@ type S3Helper struct {
 }
 
 func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) (ret *S3Helper) {
+	logger.LogfV("access key id: %s..., secret access key: %s..., region: %s, bucket: %s", accessKeyId[0:5], secretAccessKey[0:5], region, bucket)
 	if config, err := config.LoadDefaultConfig(
 		context.TODO(),
 		config.WithRegion(region),
