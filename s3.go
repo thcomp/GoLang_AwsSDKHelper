@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,6 +50,12 @@ func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *Th
 }
 
 func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (items [](*S3Item), nextContinuationToken *string, err error) {
+	needSubPrefix := false
+	if strings.HasSuffix(prefix, "*") {
+		prefix = strings.TrimRight(prefix, "*")
+		needSubPrefix = true
+	}
+
 	ctx := context.Background()
 	output, listErr := s3Helper.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:            &s3Helper.bucket,
@@ -89,6 +96,25 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 							helper: s3Helper,
 						},
 					)
+
+					if needSubPrefix {
+						contToken := (*string)(nil)
+						for {
+							if tempItems, tempToken, tempErr := s3Helper.ListItems(*commonPrefix.Prefix, contToken); tempErr == nil {
+								if tempItems != nil {
+									items = append(items, tempItems...)
+								}
+								contToken = tempToken
+							} else {
+								err = tempErr
+								contToken = nil
+							}
+
+							if contToken == nil {
+								break
+							}
+						}
+					}
 				}
 			}
 		}
@@ -100,6 +126,7 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 }
 
 func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
+	s3Helper.logger.LogfV("key: %s", s3Filepath)
 	ctx := context.Background()
 	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s3Helper.bucket,
