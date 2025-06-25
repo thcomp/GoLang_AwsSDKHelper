@@ -26,7 +26,6 @@ type S3Helper struct {
 }
 
 func NewS3Helper(accessKeyId, secretAccessKey, region, bucket string, logger *ThcompUtility.Logger) (ret *S3Helper) {
-	logger.LogfV("access key id: %s..., secret access key: %s..., region: %s, bucket: %s", accessKeyId[0:5], secretAccessKey[0:5], region, bucket)
 	if config, err := config.LoadDefaultConfig(
 		context.TODO(),
 		config.WithRegion(region),
@@ -127,7 +126,6 @@ func (s3Helper *S3Helper) ListItems(prefix string, continuationToken *string) (i
 }
 
 func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error) {
-	s3Helper.logger.LogfV("bucket: %s, key: %s", s3Helper.bucket, s3Filepath)
 	ctx := context.Background()
 	if output, err := s3Helper.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s3Helper.bucket),
@@ -135,6 +133,7 @@ func (s3Helper *S3Helper) GetItem(s3Filepath string) (item *S3Item, retErr error
 	}); err == nil {
 		item = &S3Item{
 			IsDir:        false,
+			Path:         s3Filepath,
 			lastModified: output.LastModified,
 			size:         output.ContentLength,
 			helper:       s3Helper,
@@ -217,8 +216,8 @@ func (item *S3Item) Reader() (reader io.ReadCloser, retErr error) {
 	if item.reader == nil {
 		ctx := context.Background()
 		if output, err := item.helper.client.GetObject(ctx, &s3.GetObjectInput{
-			Bucket: &item.helper.bucket,
-			Key:    &item.Path,
+			Bucket: aws.String(item.helper.bucket),
+			Key:    aws.String(item.Path),
 		}); err == nil {
 			item.reader = output.Body
 			reader = item.reader
