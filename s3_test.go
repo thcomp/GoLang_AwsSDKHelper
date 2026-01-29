@@ -8,7 +8,7 @@ import (
 )
 
 func Test_S3Helper_GetItem(t *testing.T) {
-	if reader, openErr := os.Open("test.json"); openErr == nil {
+	if reader, openErr := os.Open("test_s3.json"); openErr == nil {
 		paramMap := map[string]string{}
 		json.NewDecoder(reader).Decode(&paramMap)
 
